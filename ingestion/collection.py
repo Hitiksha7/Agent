@@ -3,8 +3,9 @@ import streamlit as st
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, PointStruct,
-    Filter, FieldCondition, MatchValue
+    Filter, FieldCondition, MatchValue, PayloadSchemaType
 )
+from qdrant_client.http.exceptions import UnexpectedResponse
 from sentence_transformers import SentenceTransformer
 
 from ingestion.loader import read_document
@@ -44,6 +45,20 @@ def init_collection() -> None:
                 distance=Distance.COSINE
             )
         )
+
+    # Ensure payload index exists for session-scoped filters.
+    # Some Qdrant deployments require indexed payload keys for filtering.
+    try:
+        client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="session_id",
+            field_schema=PayloadSchemaType.KEYWORD,
+            wait=True
+        )
+    except UnexpectedResponse as exc:
+        # Ignore if index already exists; raise any other error.
+        if "already exists" not in str(exc).lower():
+            raise
 
 
 def store_document(
@@ -119,10 +134,10 @@ def search(
         ]
     )
 
-    results = client.search(
+    results = client.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vector,
+        query=query_vector,
         query_filter=session_filter,
         limit=top_k
     )
-    return [r.payload["text"] for r in results]
+    return [r.payload["text"] for r in results.points]

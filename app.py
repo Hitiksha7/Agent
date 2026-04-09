@@ -9,6 +9,29 @@ from config import (
     QDRANT_URL, QDRANT_API_KEY, OPENAI_API_KEY
 )
 
+st.set_page_config(
+    page_title="Agentic RAG",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    [data-testid="collapsedControl"] {display: none !important;}
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        min-width: 300px !important;
+        transform: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ── Startup validation ────────────────────────────────────
 missing = [
     name for name, val in {
@@ -18,127 +41,200 @@ missing = [
     }.items() if not val
 ]
 if missing:
-    st.error(
-        f"❌ Missing env vars: {', '.join(missing)}. Check your .env file."
-    )
+    st.error(f"Missing env vars: {', '.join(missing)}")
     st.stop()
 
-st.set_page_config(page_title="Agentic RAG", layout="wide")
-st.title("🤖 Agentic RAG")
 
-# ── Sidebar Settings ──────────────────────────────────────
-st.sidebar.header("⚙️ Settings")
+# ── Helper ────────────────────────────────────────────────
+def new_chat() -> str:
+    chat_id = str(uuid.uuid4())
+    st.session_state.chats[chat_id] = {
+        "title": "New Chat",
+        "messages": [],
+        "documents": [],
+        "session_id": str(uuid.uuid4()),
+        "last_response": None,
+    }
+    return chat_id
 
-chunk_size = st.sidebar.slider(
-    "Chunk Size", 100, 2000, CHUNK_SIZE, step=100
-)
-chunk_overlap = st.sidebar.slider(
-    "Chunk Overlap", 0, 200, CHUNK_OVERLAP, step=10
-)
-top_k = st.sidebar.slider("Top K Results", 1, 10, TOP_K)
-temperature = st.sidebar.slider(
-    "Temperature", 0.0, 1.0, TEMPERATURE, step=0.1
-)
 
 # ── Session State ─────────────────────────────────────────
-for key, default in {
-    "session_id": str(uuid.uuid4()),    # unique ID per browser session
-    "last_response": None,              # latest tool_search answer
-    "chat_history": [],
-    "collection_ready": False,
-    "last_uploaded_file": None,
-}.items():
-    if key not in st.session_state:
-        st.session_state[key] = default
+if "chats" not in st.session_state:
+    st.session_state.chats = {}
 
-st.sidebar.markdown("---")
-st.sidebar.caption(f"🔑 Session: `{st.session_state.session_id[:8]}...`")
+if "current_chat_id" not in st.session_state:
+    st.session_state.current_chat_id = new_chat()
 
-# ── File Upload ───────────────────────────────────────────
-st.subheader("📤 Upload Document")
-uploaded_file = st.file_uploader(
-    "Upload a document", type=["pdf", "docx", "txt"]
-)
+if "settings" not in st.session_state:
+    st.session_state.settings = {
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "top_k": TOP_K,
+        "temperature": TEMPERATURE,
+    }
 
-if uploaded_file:
-    if uploaded_file.name != st.session_state.last_uploaded_file:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        temp_path = os.path.join(DATA_DIR, uploaded_file.name)
+# ── Sidebar ───────────────────────────────────────────────
+# with st.sidebar:
+#     st.markdown("### 🤖 Agentic RAG")
 
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+    if st.button("＋ New Chat", use_container_width=True):
+        st.session_state.current_chat_id = new_chat()
+        st.rerun()
 
-        with st.spinner("Processing document..."):
-            init_collection()
-            num_chunks = store_document(
-                file_path=temp_path,
-                session_id=st.session_state.session_id,
-                chunk_size=chunk_size,
-                chunk_overlap=chunk_overlap
-            )
-            st.session_state.collection_ready = True
-            st.session_state.last_uploaded_file = uploaded_file.name
-            st.session_state.last_response = None
-            st.session_state.chat_history = []
+    st.divider()
 
-        st.success(
-            f"✅ {uploaded_file.name} stored! ({num_chunks} chunks)"
+    # Chat list
+    st.caption("CHATS")
+    for chat_id, chat in list(st.session_state.chats.items()):
+        is_active = chat_id == st.session_state.current_chat_id
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            label = f"{'▶ ' if is_active else ''}{chat['title']}"
+            if st.button(
+                label,
+                key=f"chat_{chat_id}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary"
+            ):
+                st.session_state.current_chat_id = chat_id
+                st.rerun()
+        with col2:
+            if st.button("✕", key=f"del_{chat_id}"):
+                del st.session_state.chats[chat_id]
+                if st.session_state.current_chat_id == chat_id:
+                    if st.session_state.chats:
+                        st.session_state.current_chat_id = list(
+                            st.session_state.chats.keys()
+                        )[-1]
+                    else:
+                        st.session_state.current_chat_id = new_chat()
+                st.rerun()
+
+    st.divider()
+
+    # Settings
+    with st.expander("⚙️ Settings", expanded=False):
+        st.session_state.settings["chunk_size"] = st.slider(
+            "Chunk Size", 100, 2000,
+            st.session_state.settings["chunk_size"], step=100
         )
-    else:
-        st.info(f"📄 {uploaded_file.name} already indexed.")
+        st.session_state.settings["chunk_overlap"] = st.slider(
+            "Chunk Overlap", 0, 200,
+            st.session_state.settings["chunk_overlap"], step=10
+        )
+        st.session_state.settings["top_k"] = st.slider(
+            "Top K", 1, 10,
+            st.session_state.settings["top_k"]
+        )
+        st.session_state.settings["temperature"] = st.slider(
+            "Temperature", 0.0, 1.0,
+            st.session_state.settings["temperature"], step=0.1
+        )
 
-# ── Chat Interface ────────────────────────────────────────
-st.subheader("💬 Chat with your Document")
+    st.divider()
 
-for chat in st.session_state.chat_history:
-    with st.chat_message(chat["role"]):
-        st.write(chat["content"])
-        if chat.get("tool_used"):
-            st.caption(f"🔧 Tool used: `{chat['tool_used']}`")
-        if chat.get("file_path"):
-            st.caption(f"📁 File saved: `{chat['file_path']}`")
+    # Documents
+    current_chat = st.session_state.chats[st.session_state.current_chat_id]
+    st.caption("DOCUMENTS")
 
-user_input = st.chat_input(
-    "Ask a question or say 'save this to a file'..."
-)
+    uploaded_file = st.file_uploader(
+        "Upload a document",
+        type=["pdf", "docx", "txt"],
+        key=f"upload_{st.session_state.current_chat_id}"
+    )
+
+    if uploaded_file:
+        already = [d["name"] for d in current_chat["documents"]]
+        if uploaded_file.name not in already:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            temp_path = os.path.join(DATA_DIR, uploaded_file.name)
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            with st.spinner("Processing..."):
+                init_collection()
+                num_chunks = store_document(
+                    file_path=temp_path,
+                    session_id=current_chat["session_id"],
+                    chunk_size=st.session_state.settings["chunk_size"],
+                    chunk_overlap=st.session_state.settings["chunk_overlap"]
+                )
+                current_chat["documents"].append({
+                    "name": uploaded_file.name,
+                    "chunks": num_chunks
+                })
+            st.success(f" {uploaded_file.name}")
+        else:
+            st.info("Already indexed.")
+
+    if current_chat["documents"]:
+        for doc in current_chat["documents"]:
+            st.caption(f"📎 {doc['name']} · {doc['chunks']} chunks")
+
+    st.divider()
+
+    if st.button(" Reset Chat", use_container_width=True):
+        current_chat["messages"] = []
+        current_chat["last_response"] = None
+        st.rerun()
+
+# ── Main chat area ────────────────────────────────────────
+current_chat = st.session_state.chats[st.session_state.current_chat_id]
+
+st.subheader(f" {current_chat['title']}")
+st.divider()
+
+# Messages
+for msg in current_chat["messages"]:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+        if msg.get("tool_used"):
+            st.caption(f"🔧 `{msg['tool_used']}`")
+        if msg.get("file_path"):
+            st.caption(f" `{msg['file_path']}`")
+
+# Empty state
+if not current_chat["messages"]:
+    st.markdown(
+        "<div style='text-align:center; color:#888; margin-top:5rem;'>"
+        " Upload a document and start chatting"
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+# ── Input ─────────────────────────────────────────────────
+user_input = st.chat_input("Ask a question...")
 
 if user_input:
-    if not st.session_state.collection_ready:
-        st.warning("⚠️ Please upload a document first.")
-    else:
-        with st.chat_message("user"):
-            st.write(user_input)
+    current_chat["messages"].append({
+        "role": "user",
+        "content": user_input
+    })
 
-        st.session_state.chat_history.append({
-            "role": "user",
-            "content": user_input
-        })
+    with st.chat_message("user"):
+        st.write(user_input)
 
-        with st.spinner("Agent is thinking..."):
-            result = run_agent(
-                user_message=user_input,
-                session_id=st.session_state.session_id,
-                last_response=st.session_state.last_response,
-                top_k=top_k,
-                temperature=temperature
-            )
+    with st.spinner("Thinking..."):
+        result = run_agent(
+            user_message=user_input,
+            session_id=current_chat["session_id"],
+            last_response=current_chat["last_response"],
+            top_k=st.session_state.settings["top_k"],
+            temperature=st.session_state.settings["temperature"]
+        )
 
-        with st.chat_message("assistant"):
-            st.write(result["response"])
-            if result["tool_used"]:
-                st.caption(f"🔧 Tool used: `{result['tool_used']}`")
-            if result["file_path"]:
-                st.caption(f"📁 File saved: `{result['file_path']}`")
+    with st.chat_message("assistant"):
+        st.write(result["response"])
+        if result["tool_used"]:
+            st.caption(f" `{result['tool_used']}`")
+        if result["file_path"]:
+            st.caption(f" `{result['file_path']}`")
 
-        # ── Fix: use last_search_response to always track
-        # the latest search answer correctly
-        if result.get("last_search_response"):
-            st.session_state.last_response = result["last_search_response"]
+    if result.get("last_search_response"):
+        current_chat["last_response"] = result["last_search_response"]
 
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "content": result["response"],
-            "tool_used": result["tool_used"],
-            "file_path": result["file_path"],
-            "last_search_response": result["last_search_response"]
-        })
+    current_chat["messages"].append({
+        "role": "assistant",
+        "content": result["response"],
+        "tool_used": result["tool_used"],
+        "file_path": result["file_path"]
+    })

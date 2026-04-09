@@ -17,11 +17,15 @@ from agent.prompt import generate_response
     },
     required=["query"]
 )
-def tool_search(query: str, top_k: int = 3, temperature: float = 0.7) -> str:
+def tool_search(
+    query: str,
+    session_id: str,
+    top_k: int = 3,
+    temperature: float = 0.7
+) -> str:
     """
-    Tool 1: Retrieve relevant chunks from Qdrant and generate
-    a grounded answer via OpenAI.
-    Registry filters kwargs so no TypeError from extra args.
+    Tool 1: Retrieve relevant chunks from current session only,
+    then generate a grounded answer via OpenAI.
     """
-    chunks = search(query, top_k=top_k)
+    chunks = search(query, session_id=session_id, top_k=top_k)
     return generate_response(query, chunks, temperature)

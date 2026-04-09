@@ -9,7 +9,7 @@ from agent.tools.registry import get_tool_schemas, call_tool
 from agent.tools.tool_search import tool_search
 from config import OPENAI_API_KEY, LLM_MODEL
 
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 10
 
 
 @st.cache_resource
