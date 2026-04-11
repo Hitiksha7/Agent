@@ -1,10 +1,9 @@
-import streamlit as st
+from functools import lru_cache
 from openai import OpenAI
 from config import OPENAI_API_KEY, LLM_MODEL
 
-MAX_TOKENS = 1024
+MAX_TOKENS = 512
 
-# ── System Prompt ─────────────────────────────────────────
 SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on the provided document context.
 
 Rules:
@@ -15,23 +14,14 @@ Rules:
 """
 
 
-@st.cache_resource          # ✅ OpenAI client created once, reused
+@lru_cache(maxsize=1)
 def get_openai_client() -> OpenAI:
-    """Create OpenAI client once and reuse across all reruns."""
+    """Create OpenAI client once and reuse."""
     return OpenAI(api_key=OPENAI_API_KEY)
 
 
 def build_prompt(query: str, context_chunks: list[str]) -> list[dict]:
-    """
-    Build the messages payload for OpenAI from query and retrieved chunks.
-
-    Args:
-        query: User's question
-        context_chunks: List of relevant text chunks from Qdrant
-
-    Returns:
-        List of messages for OpenAI chat completion
-    """
+    """Build messages payload for OpenAI."""
     context = "\n\n".join(
         [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)]
     )
@@ -46,17 +36,7 @@ def generate_response(
     context_chunks: list[str],
     temperature: float
 ) -> str:
-    """
-    Generate a response from OpenAI given query and context chunks.
-
-    Args:
-        query: User's question
-        context_chunks: Retrieved chunks from Qdrant
-        temperature: LLM temperature
-
-    Returns:
-        Generated answer string
-    """
+    """Generate response from OpenAI given query and context chunks."""
     if not context_chunks:
         return "No relevant information found in the document."
 
@@ -69,5 +49,4 @@ def generate_response(
         max_tokens=MAX_TOKENS,
         messages=messages
     )
-
     return response.choices[0].message.content

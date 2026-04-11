@@ -1,9 +1,8 @@
 import json
-import streamlit as st
+from functools import lru_cache
 from openai import OpenAI
 
-# Importing tools package triggers all @tool decorators → auto-registration
-import agent.tools  # noqa: F401
+import agent.tools  # noqa: F401 — triggers @tool decorators
 
 from agent.tools.registry import get_tool_schemas, call_tool
 from agent.tools.tool_search import tool_search
@@ -12,9 +11,9 @@ from config import OPENAI_API_KEY, LLM_MODEL
 MAX_ITERATIONS = 10
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def get_openai_client() -> OpenAI:
-    """Create OpenAI client once and reuse across all reruns."""
+    """Create OpenAI client once and reuse."""
     return OpenAI(api_key=OPENAI_API_KEY)
 
 
@@ -27,14 +26,10 @@ def _format_result(tool_name: str, raw) -> dict:
             "file_path": None,
             "last_search_response": raw
         }
-
     elif tool_name == "tool_file":
         if raw == "NO_CONTENT":
             return {
-                "response": (
-                    "No answer to save yet. "
-                    "Please ask a question first."
-                ),
+                "response": "No answer to save yet. Please ask a question first.",
                 "tool_used": "tool_file",
                 "file_path": None,
                 "last_search_response": None
@@ -45,7 +40,6 @@ def _format_result(tool_name: str, raw) -> dict:
             "file_path": raw,
             "last_search_response": None
         }
-
     elif tool_name == "tool_time":
         return {
             "response": raw,
@@ -53,7 +47,6 @@ def _format_result(tool_name: str, raw) -> dict:
             "file_path": None,
             "last_search_response": None
         }
-
     return {
         "response": f"Unknown tool: {tool_name}",
         "tool_used": None,
@@ -72,19 +65,6 @@ def run_agent(
     """
     Agent loop: keeps calling tools until the LLM returns
     a final answer with no more tool calls.
-
-    The LLM naturally decides when to use tools and when to
-    respond directly (greetings, small talk, off-topic, etc.)
-
-    Args:
-        user_message: The user's input from Streamlit
-        session_id: Current session ID for scoped Qdrant search
-        last_response: Last RAG answer (used by tool_file)
-        top_k: Number of chunks to retrieve from Qdrant
-        temperature: LLM temperature
-
-    Returns:
-        dict: response, tool_used, file_path, last_search_response
     """
     messages = [
         {
@@ -108,19 +88,14 @@ def run_agent(
                 "- 'what time is it?' → use tool_time\n"
             )
         },
-        {
-            "role": "user",
-            "content": user_message
-        }
+        {"role": "user", "content": user_message}
     ]
 
     final_result = None
     tools_used = []
     current_last_response = last_response
 
-    # ── Agent loop ────────────────────────────────────────
     for _ in range(MAX_ITERATIONS):
-
         response = get_openai_client().chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
@@ -130,11 +105,7 @@ def run_agent(
 
         message = response.choices[0].message
 
-        # No tool calls → LLM responded directly (greeting, small talk etc.)
         if not message.tool_calls:
-
-            # No tool was ever called and LLM gave a direct answer
-            # → trust the LLM's direct response (greeting, off-topic etc.)
             if not tools_used:
                 return {
                     "response": message.content,
@@ -142,7 +113,6 @@ def run_agent(
                     "file_path": None,
                     "last_search_response": None
                 }
-
             if final_result is None:
                 return {
                     "response": "Agent completed but produced no result.",
@@ -150,16 +120,12 @@ def run_agent(
                     "file_path": None,
                     "last_search_response": None
                 }
-
-            # Use LLM summary if available, else keep last tool result
             final_result["response"] = (
-                message.content
-                if message.content
+                message.content if message.content
                 else final_result["response"]
             )
             return final_result
 
-        # Add assistant message to history
         messages.append({
             "role": "assistant",
             "content": message.content or "",
@@ -176,7 +142,6 @@ def run_agent(
             ]
         })
 
-        # Execute each tool call
         for tool_call in message.tool_calls:
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
@@ -193,7 +158,6 @@ def run_agent(
             final_result = _format_result(tool_name, raw)
             tools_used.append(tool_name)
 
-            # Always update so tool_file gets freshest search answer
             if tool_name == "tool_search":
                 current_last_response = raw
 
