@@ -1,6 +1,6 @@
 from agent.tools.registry import tool
 from ingestion.collection import search
-from agent.prompt import generate_response
+from agent.prompt import generate_response, stream_response
 
 
 @tool(
@@ -21,11 +21,19 @@ def tool_search(
     query: str,
     session_id: str,
     top_k: int = 3,
-    temperature: float = 0.7
-) -> str:
+    temperature: float = 0.7,
+    stream: bool = False,
+    **kwargs
+):
     """
-    Tool 1: Retrieve relevant chunks from current session only,
-    then generate a grounded answer via OpenAI.
+    Tool 1: Retrieve relevant chunks from Qdrant and generate answer.
+    Supports both streaming and non-streaming modes.
+
+    Args:
+        stream: If True returns a generator, else returns a string
     """
     chunks = search(query, session_id=session_id, top_k=top_k)
+
+    if stream:
+        return stream_response(query, chunks, temperature)
     return generate_response(query, chunks, temperature)

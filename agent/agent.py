@@ -1,20 +1,12 @@
 import json
-from functools import lru_cache
-from openai import OpenAI
-
 import agent.tools  # noqa: F401 — triggers @tool decorators
 
 from agent.tools.registry import get_tool_schemas, call_tool
 from agent.tools.tool_search import tool_search
-from config import OPENAI_API_KEY, LLM_MODEL
+from agent.llm_client import get_llm_client
+from config import LLM_MODEL
 
 MAX_ITERATIONS = 10
-
-
-@lru_cache(maxsize=1)
-def get_openai_client() -> OpenAI:
-    """Create OpenAI client once and reuse."""
-    return OpenAI(api_key=OPENAI_API_KEY)
 
 
 def _format_result(tool_name: str, raw) -> dict:
@@ -35,7 +27,7 @@ def _format_result(tool_name: str, raw) -> dict:
                 "last_search_response": None
             }
         return {
-            "response": f"✅ Response saved to: `{raw}`",
+            "response": f" Response saved to: `{raw}`",
             "tool_used": "tool_file",
             "file_path": raw,
             "last_search_response": None
@@ -96,7 +88,7 @@ def run_agent(
     current_last_response = last_response
 
     for _ in range(MAX_ITERATIONS):
-        response = get_openai_client().chat.completions.create(
+        response = get_llm_client().chat.completions.create(
             model=LLM_MODEL,
             messages=messages,
             tools=get_tool_schemas(),

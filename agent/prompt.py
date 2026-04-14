@@ -1,8 +1,6 @@
-from functools import lru_cache
-from openai import OpenAI
-from config import OPENAI_API_KEY, LLM_MODEL
-
-MAX_TOKENS = 512
+from typing import Generator
+from agent.llm_client import get_llm_client
+from config import LLM_MODEL, MAX_TOKENS
 
 SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on the provided document context.
 
@@ -14,14 +12,8 @@ Rules:
 """
 
 
-@lru_cache(maxsize=1)
-def get_openai_client() -> OpenAI:
-    """Create OpenAI client once and reuse."""
-    return OpenAI(api_key=OPENAI_API_KEY)
-
-
 def build_prompt(query: str, context_chunks: list[str]) -> list[dict]:
-    """Build messages payload for OpenAI."""
+    """Build messages payload for LLM from query and retrieved chunks."""
     context = "\n\n".join(
         [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)]
     )
@@ -36,17 +28,47 @@ def generate_response(
     context_chunks: list[str],
     temperature: float
 ) -> str:
-    """Generate response from OpenAI given query and context chunks."""
+    """Generate full response (non-streaming) from LLM."""
     if not context_chunks:
         return "No relevant information found in the document."
 
-    client = get_openai_client()
     messages = build_prompt(query, context_chunks)
 
-    response = client.chat.completions.create(
+    response = get_llm_client().chat.completions.create(
         model=LLM_MODEL,
         temperature=temperature,
         max_tokens=MAX_TOKENS,
         messages=messages
     )
     return response.choices[0].message.content
+
+
+def stream_response(
+    query: str,
+    context_chunks: list[str],
+    temperature: float
+) -> Generator[str, None, None]:
+    """
+    Stream response token by token from LLM.
+    Yields growing text chunks as tokens arrive.
+    """
+    if not context_chunks:
+        yield "No relevant information found in the document."
+        return
+
+    messages = build_prompt(query, context_chunks)
+
+    stream = get_llm_client().chat.completions.create(
+        model=LLM_MODEL,
+        temperature=temperature,
+        max_tokens=MAX_TOKENS,
+        messages=messages,
+        stream=True        # ← enable streaming
+    )
+
+    full_text = ""
+    for chunk in stream:
+        token = chunk.choices[0].delta.content
+        if token:
+            full_text += token
+            yield full_text  # yield growing text for Gradio
