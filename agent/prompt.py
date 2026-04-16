@@ -15,7 +15,7 @@ Rules:
 def build_prompt(query: str, context_chunks: list[str]) -> list[dict]:
     """Build messages payload for LLM from query and retrieved chunks."""
     context = "\n\n".join(
-        [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)]
+        [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate[str](context_chunks)]
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

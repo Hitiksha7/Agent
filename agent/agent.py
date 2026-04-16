@@ -1,12 +1,12 @@
 import json
-import agent.tools  # noqa: F401 — triggers @tool decorators
+import agent.tools
 
 from agent.tools.registry import get_tool_schemas, call_tool
-from agent.tools.tool_search import tool_search
 from agent.llm_client import get_llm_client
 from config import LLM_MODEL
 
-MAX_ITERATIONS = 10
+
+MAX_ITERATIONS = 5
 
 
 def _format_result(tool_name: str, raw) -> dict:
@@ -18,6 +18,13 @@ def _format_result(tool_name: str, raw) -> dict:
             "file_path": None,
             "last_search_response": raw
         }
+    elif tool_name == "tool_sql":
+        return {
+            "response": raw,
+            "tool_used": "tool_sql",
+            "file_path": None,
+            "last_search_response": None
+        }
     elif tool_name == "tool_file":
         if raw == "NO_CONTENT":
             return {
@@ -27,7 +34,7 @@ def _format_result(tool_name: str, raw) -> dict:
                 "last_search_response": None
             }
         return {
-            "response": f" Response saved to: `{raw}`",
+            "response": f"Response saved to: `{raw}`",
             "tool_used": "tool_file",
             "file_path": raw,
             "last_search_response": None
@@ -62,22 +69,32 @@ def run_agent(
         {
             "role": "system",
             "content": (
-                "You are a helpful document assistant with access to tools.\n\n"
+                "You are a helpful assistant with access to tools.\n\n"
                 "Tool usage rules:\n"
-                "- Use tool_search ONLY when the user asks a question "
-                "about the content of the uploaded document.\n"
-                "- Use tool_file ONLY when the user explicitly asks to "
-                "save, export, or create a file.\n"
-                "- Use tool_time ONLY when the user asks for the current "
-                "time or date.\n"
-                "- For greetings, small talk, or anything unrelated to "
-                "the document — respond directly WITHOUT calling any tool.\n\n"
+                "- Use tool_search when the user asks about the content "
+                "of an uploaded document.\n"
+                "- Use tool_sql when the user asks about data from a "
+                "database — for example counts, totals, records, filters, "
+                "statistics, or when they explicitly say 'from the db', "
+                "'query the database', 'in the database'.\n"
+                "- Use tool_file when the user explicitly asks to save, "
+                "export, or create a file.\n"
+                "- Use tool_time when the user asks for the current time "
+                "or date.\n"
+                "- For greetings, small talk, or anything unrelated — "
+                "respond directly WITHOUT calling any tool.\n\n"
+                "- Use tool_sql when the user asks about data from a database...\n"
+                "- 'how many users signed up this month?' → tool_sql\n"
+                "- 'show me all orders above 1000' → tool_sql\n"
+                "- 'query db for total revenue' → tool_sql\n"
                 "Examples:\n"
-                "- 'hi' → respond friendly, no tool\n"
-                "- 'how are you' → respond friendly, no tool\n"
-                "- 'what is the refund policy?' → use tool_search\n"
-                "- 'save this to a file' → use tool_file\n"
-                "- 'what time is it?' → use tool_time\n"
+                "- 'hi' → no tool\n"
+                "- 'what is the refund policy?' → tool_search\n"
+                "- 'how many users signed up this month?' → tool_sql\n"
+                "- 'show me all orders above 1000' → tool_sql\n"
+                "- 'query db for total revenue' → tool_sql\n"
+                "- 'save this to a file' → tool_file\n"
+                "- 'what time is it?' → tool_time\n"
             )
         },
         {"role": "user", "content": user_message}
@@ -112,10 +129,11 @@ def run_agent(
                     "file_path": None,
                     "last_search_response": None
                 }
-            final_result["response"] = (
-                message.content if message.content
-                else final_result["response"]
-            )
+            if final_result.get("tool_used") != "tool_sql":
+                final_result["response"] = (
+                    message.content if message.content
+                    else final_result["response"]
+                )
             return final_result
 
         messages.append({

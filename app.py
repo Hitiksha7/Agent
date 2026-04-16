@@ -240,6 +240,8 @@ with gr.Blocks(
     title="Agentic RAG",
     theme=gr.themes.Soft(),
     css="""
+    :root { color-scheme: dark; }
+    .gradio-container { background-color: #1a1a2e !important; }
     footer { display: none !important; }
     .sidebar-col { border-right: 1px solid #2a2a2a; padding-right: 8px; }
     .chat-dropdown select { max-height: 300px; overflow-y: auto; }
@@ -294,12 +296,12 @@ with gr.Blocks(
             )
 
         # ── Middle: Chat area ─────────────────────────────
-        with gr.Column(scale=2, min_width=600):
+        with gr.Column(scale=2, min_width=500):
             chatbot = gr.Chatbot(
                 label="Chat",
                 height=800,
                 show_label=False,
-                placeholder="Upload a document and start chatting..."
+                placeholder="Upload a document/database and start chatting..."
             )
 
             with gr.Row():
@@ -315,7 +317,7 @@ with gr.Blocks(
                 )
 
         # ── Right: Settings ───────────────────────────────
-        with gr.Column(scale=1, min_width=240):
+        with gr.Column(scale=1, min_width=340):
             gr.Markdown("#### ⚙️ Settings")
 
             top_k = gr.Slider(
@@ -423,4 +425,5 @@ if __name__ == "__main__":
     demo.launch(
         server_name="127.0.0.1",
         inbrowser=True
+        #js="() => { document.body.classList.add('dark'); }"
     )

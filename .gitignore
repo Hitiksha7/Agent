@@ -4,3 +4,9 @@ __pycache__/
 ingestion/__pycache__/collection.cpython-313.pyc
 ingestion/__pycache__/collection.cpython-313.pyc
 ingestion/__pycache__/__init__.cpython-313.pyc
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+chat_history.db
