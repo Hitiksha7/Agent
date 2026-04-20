@@ -6,7 +6,7 @@ from agent.llm_client import get_llm_client
 from config import LLM_MODEL
 
 
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 2
 
 
 def _format_result(tool_name: str, raw) -> dict:
@@ -74,8 +74,14 @@ def run_agent(
                 "- Use tool_search when the user asks about the content "
                 "of an uploaded document.\n"
                 "- Use tool_sql when the user asks about data from a "
+                "- IMPORTANT: Call tool_sql ONLY ONCE per user message. "
+                "Pass the complete original question. Never call tool_sql multiple times.\n"
                 "database — for example counts, totals, records, filters, "
                 "statistics, or when they explicitly say 'from the db', "
+                "'query the database', 'in the database'.\n"
+                "- When using tool_sql, ALWAYS pass the user's COMPLETE "
+                "original question as-is — never split or simplify it. "
+                "The tool handles splitting internally.\n"
                 "'query the database', 'in the database'.\n"
                 "- Use tool_file when the user explicitly asks to save, "
                 "export, or create a file.\n"
@@ -171,11 +177,16 @@ def run_agent(
             if tool_name == "tool_search":
                 current_last_response = raw
 
+            # ✅ return immediately for tool_sql — no second LLM call
+            if tool_name == "tool_sql":
+                return final_result
+
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": str(raw)
             })
+
 
     return final_result or {
         "response": "Agent reached max iterations without a final answer.",

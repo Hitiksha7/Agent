@@ -298,10 +298,12 @@ with gr.Blocks(
         # ── Middle: Chat area ─────────────────────────────
         with gr.Column(scale=2, min_width=500):
             chatbot = gr.Chatbot(
-                label="Chat",
-                height=800,
-                show_label=False,
-                placeholder="Upload a document/database and start chatting..."
+            label="Chat",
+            height=700,
+            show_label=False,
+            placeholder="Upload a document/database and start chatting...",
+            render_markdown=True  
+            #type="messages"       
             )
 
             with gr.Row():
