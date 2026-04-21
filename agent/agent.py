@@ -3,6 +3,7 @@ import agent.tools
 
 from agent.tools.registry import get_tool_schemas, call_tool
 from agent.llm_client import get_llm_client
+from postgres_db import get_schema
 from config import LLM_MODEL
 
 
@@ -59,12 +60,28 @@ def run_agent(
     session_id: str,
     last_response: str = None,
     top_k: int = 3,
-    temperature: float = 0.7
+    temperature: float = 0.7,
+    db_credentials: dict = None
 ) -> dict:
     """
     Agent loop: keeps calling tools until the LLM returns
     a final answer with no more tool calls.
     """
+
+    # ✅ Fetch schema and inject into system prompt
+    schema_context = ""
+    if db_credentials:
+        try:
+            schema = get_schema(credentials=db_credentials)
+            schema_context = (
+                f"\n\nDatabase Schema (use this to understand the DB):\n"
+                f"{schema}\n"
+                f"Use this schema to understand what tables and columns "
+                f"exist before deciding to call tool_sql.\n"
+            )
+        except Exception:
+            schema_context = "\n\nDatabase: connection available but schema fetch failed.\n"
+
     messages = [
         {
             "role": "system",
@@ -74,33 +91,26 @@ def run_agent(
                 "- Use tool_search when the user asks about the content "
                 "of an uploaded document.\n"
                 "- Use tool_sql when the user asks about data from a "
-                "- IMPORTANT: Call tool_sql ONLY ONCE per user message. "
-                "Pass the complete original question. Never call tool_sql multiple times.\n"
                 "database — for example counts, totals, records, filters, "
                 "statistics, or when they explicitly say 'from the db', "
                 "'query the database', 'in the database'.\n"
                 "- When using tool_sql, ALWAYS pass the user's COMPLETE "
                 "original question as-is — never split or simplify it. "
                 "The tool handles splitting internally.\n"
-                "'query the database', 'in the database'.\n"
+                "- IMPORTANT: Call tool_sql ONLY ONCE per user message.\n"
                 "- Use tool_file when the user explicitly asks to save, "
                 "export, or create a file.\n"
                 "- Use tool_time when the user asks for the current time "
                 "or date.\n"
                 "- For greetings, small talk, or anything unrelated — "
                 "respond directly WITHOUT calling any tool.\n\n"
-                "- Use tool_sql when the user asks about data from a database...\n"
-                "- 'how many users signed up this month?' → tool_sql\n"
-                "- 'show me all orders above 1000' → tool_sql\n"
-                "- 'query db for total revenue' → tool_sql\n"
                 "Examples:\n"
                 "- 'hi' → no tool\n"
                 "- 'what is the refund policy?' → tool_search\n"
-                "- 'how many users signed up this month?' → tool_sql\n"
-                "- 'show me all orders above 1000' → tool_sql\n"
-                "- 'query db for total revenue' → tool_sql\n"
+                "- 'how many orders in 2023?' → tool_sql\n"
                 "- 'save this to a file' → tool_file\n"
                 "- 'what time is it?' → tool_time\n"
+                + schema_context  # ✅ DB schema injected here
             )
         },
         {"role": "user", "content": user_message}
@@ -168,7 +178,8 @@ def run_agent(
                 session_id=session_id,
                 last_response=current_last_response,
                 top_k=top_k,
-                temperature=temperature
+                temperature=temperature,
+                db_credentials=db_credentials  # ✅ pass credentials to tools
             )
 
             final_result = _format_result(tool_name, raw)
@@ -177,16 +188,14 @@ def run_agent(
             if tool_name == "tool_search":
                 current_last_response = raw
 
-            # ✅ return immediately for tool_sql — no second LLM call
             if tool_name == "tool_sql":
-                return final_result
+                return final_result  # ✅ return immediately
 
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": str(raw)
             })
-
 
     return final_result or {
         "response": "Agent reached max iterations without a final answer.",

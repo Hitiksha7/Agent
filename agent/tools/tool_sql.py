@@ -66,11 +66,7 @@ def _generate_queries(user_question: str, schema: str) -> list[dict]:
     return json.loads(raw)
 
 
-def _run_all_queries(queries: list[dict]) -> list[dict]:
-    """
-    Step 2: Execute each SQL query and collect results.
-    Returns list of {"label": str, "sql": str, "rows": list, "error": str|None}
-    """
+def _run_all_queries(queries: list[dict], db_credentials: dict = None) -> list[dict]:
     results = []
     for q in queries:
         label = q.get("label", "Result")
@@ -86,7 +82,7 @@ def _run_all_queries(queries: list[dict]) -> list[dict]:
             continue
 
         try:
-            rows = run_query(sql)
+            rows = run_query(sql, credentials=db_credentials)  # ✅ dynamic
             results.append({
                 "label": label,
                 "sql": sql,
@@ -102,7 +98,6 @@ def _run_all_queries(queries: list[dict]) -> list[dict]:
             })
 
     return results
-
 
 def _combine_results(user_question: str, results: list[dict]) -> str:
     """
