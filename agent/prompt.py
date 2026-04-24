@@ -1,10 +1,7 @@
-import streamlit as st
-from openai import OpenAI
-from config import OPENAI_API_KEY, LLM_MODEL
+from typing import Generator
+from agent.llm_client import get_llm_client
+from config import LLM_MODEL, MAX_TOKENS
 
-MAX_TOKENS = 1024
-
-# ── System Prompt ─────────────────────────────────────────
 SYSTEM_PROMPT = """You are a helpful assistant that answers questions based on the provided document context.
 
 Rules:
@@ -15,25 +12,10 @@ Rules:
 """
 
 
-@st.cache_resource          # ✅ OpenAI client created once, reused
-def get_openai_client() -> OpenAI:
-    """Create OpenAI client once and reuse across all reruns."""
-    return OpenAI(api_key=OPENAI_API_KEY)
-
-
 def build_prompt(query: str, context_chunks: list[str]) -> list[dict]:
-    """
-    Build the messages payload for OpenAI from query and retrieved chunks.
-
-    Args:
-        query: User's question
-        context_chunks: List of relevant text chunks from Qdrant
-
-    Returns:
-        List of messages for OpenAI chat completion
-    """
+    """Build messages payload for LLM from query and retrieved chunks."""
     context = "\n\n".join(
-        [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)]
+        [f"Chunk {i+1}:\n{chunk}" for i, chunk in enumerate[str](context_chunks)]
     )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -46,28 +28,47 @@ def generate_response(
     context_chunks: list[str],
     temperature: float
 ) -> str:
-    """
-    Generate a response from OpenAI given query and context chunks.
-
-    Args:
-        query: User's question
-        context_chunks: Retrieved chunks from Qdrant
-        temperature: LLM temperature
-
-    Returns:
-        Generated answer string
-    """
+    """Generate full response (non-streaming) from LLM."""
     if not context_chunks:
         return "No relevant information found in the document."
 
-    client = get_openai_client()
     messages = build_prompt(query, context_chunks)
 
-    response = client.chat.completions.create(
+    response = get_llm_client().chat.completions.create(
         model=LLM_MODEL,
         temperature=temperature,
         max_tokens=MAX_TOKENS,
         messages=messages
     )
-
     return response.choices[0].message.content
+
+
+def stream_response(
+    query: str,
+    context_chunks: list[str],
+    temperature: float
+) -> Generator[str, None, None]:
+    """
+    Stream response token by token from LLM.
+    Yields growing text chunks as tokens arrive.
+    """
+    if not context_chunks:
+        yield "No relevant information found in the document."
+        return
+
+    messages = build_prompt(query, context_chunks)
+
+    stream = get_llm_client().chat.completions.create(
+        model=LLM_MODEL,
+        temperature=temperature,
+        max_tokens=MAX_TOKENS,
+        messages=messages,
+        stream=True        # ← enable streaming
+    )
+
+    full_text = ""
+    for chunk in stream:
+        token = chunk.choices[0].delta.content
+        if token:
+            full_text += token
+            yield full_text  # yield growing text for Gradio
